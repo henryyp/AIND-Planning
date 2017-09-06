@@ -200,7 +200,7 @@ def mutexify(node1: PgNode, node2: PgNode):
 class PlanningGraph():
     """
     A planning graph as described in chapter 10 of the AIMA text. The planning
-    graph can be used to reason about 
+    graph can be used to reason about
     """
 
     def __init__(self, problem: Problem, state: str, serial_planning=True):
@@ -284,6 +284,7 @@ class PlanningGraph():
         # continue to build the graph alternating A, S levels until last two S levels contain the same literals,
         # i.e. until it is "leveled"
         while not leveled:
+            # print('leveled levels start',level, leveled )
             self.add_action_level(level)
             self.update_a_mutex(self.a_levels[level])
 
@@ -291,8 +292,11 @@ class PlanningGraph():
             self.add_literal_level(level)
             self.update_s_mutex(self.s_levels[level])
 
+
             if self.s_levels[level] == self.s_levels[level - 1]:
                 leveled = True
+
+            # print('leveled levels end',level, leveled )
 
     def add_action_level(self, level):
         """ add an A (action) level to the Planning Graph
@@ -310,6 +314,19 @@ class PlanningGraph():
         #   set iff all prerequisite literals for the action hold in S0.  This can be accomplished by testing
         #   to see if a proposed PgNode_a has prenodes that are a subset of the previous S level.  Once an
         #   action node is added, it MUST be connected to the S node instances in the appropriate s_level set.
+        # print('add_action_level called:', level)
+        outSet = []
+        for action in self.all_actions:
+            pgNode_a = PgNode_a(action)
+
+            if pgNode_a.prenodes.issubset(self.s_levels[level]):
+                outSet.append(pgNode_a)
+                for pgNode_s in self.s_levels[level]:
+                    pgNode_s.children.add(pgNode_a)
+                    pgNode_a.parents.add(pgNode_s)
+
+        self.a_levels.append(outSet)
+
 
     def add_literal_level(self, level):
         """ add an S (literal) level to the Planning Graph
@@ -328,6 +345,19 @@ class PlanningGraph():
         #   may be "added" to the set without fear of duplication.  However, it is important to then correctly create and connect
         #   all of the new S nodes as children of all the A nodes that could produce them, and likewise add the A nodes to the
         #   parent sets of the S nodes
+
+        self.s_levels.append(set())
+
+        for pgNode_a in self.a_levels[level - 1]:
+            for effNode_s in pgNode_a.effnodes:
+                self.s_levels[level].add(effNode_s)
+
+            for pgNode_s in self.s_levels[level]:
+                pgNode_s.parents.add(pgNode_a)
+                pgNode_a.children.add(pgNode_s)
+
+
+
 
     def update_a_mutex(self, nodeset):
         """ Determine and update sibling mutual exclusion for A-level nodes
@@ -364,7 +394,7 @@ class PlanningGraph():
         :param node_a2: PgNode_a
         :return: bool
         """
-        #
+
         if not self.serial:
             return False
         if node_a1.is_persistent or node_a2.is_persistent:
@@ -385,12 +415,21 @@ class PlanningGraph():
         :param node_a2: PgNode_a
         :return: bool
         """
+
         # TODO test for Inconsistent Effects between nodes
+        for eff in node_a2.action.effect_add:
+            if eff in node_a1.action.effect_rem:
+                return True
+
+        for eff in node_a1.action.effect_add:
+            if eff in node_a2.action.effect_rem:
+                return True
+
         return False
 
     def interference_mutex(self, node_a1: PgNode_a, node_a2: PgNode_a) -> bool:
         """
-        Test a pair of actions for mutual exclusion, returning True if the 
+        Test a pair of actions for mutual exclusion, returning True if the
         effect of one action is the negation of a precondition of the other.
 
         HINT: The Action instance associated with an action node is accessible
@@ -402,7 +441,15 @@ class PlanningGraph():
         :param node_a2: PgNode_a
         :return: bool
         """
+
         # TODO test for Interference between nodes
+        for eff in node_a2.action.effect_rem:
+            if eff in node_a1.action.precond_pos:
+                return True
+
+        for eff in node_a1.action.effect_rem:
+            if eff in node_a2.action.precond_pos:
+                return True
         return False
 
     def competing_needs_mutex(self, node_a1: PgNode_a, node_a2: PgNode_a) -> bool:
@@ -417,6 +464,11 @@ class PlanningGraph():
         """
 
         # TODO test for Competing Needs between nodes
+        for a1_parent in node_a1.parents:
+            for a2_parent in node_a2.parents:
+                if a1_parent.is_mutex(a2_parent):
+                    return True
+
         return False
 
     def update_s_mutex(self, nodeset: set):
@@ -452,7 +504,7 @@ class PlanningGraph():
         :return: bool
         """
         # TODO test for negation between nodes
-        return False
+        return node_s1.symbol == node_s2.symbol and node_s1.is_pos != node_s2.is_pos
 
     def inconsistent_support_mutex(self, node_s1: PgNode_s, node_s2: PgNode_s):
         """
@@ -471,14 +523,31 @@ class PlanningGraph():
         :return: bool
         """
         # TODO test for Inconsistent Support between nodes
-        return False
+        for s1_parent in node_s1.parents:
+                for s2_parent in node_s2.parents:
+                    if not s2_parent.is_mutex(s1_parent):
+                        return False
+
+        return True
 
     def h_levelsum(self) -> int:
         """The sum of the level costs of the individual goals (admissible if goals independent)
 
         :return: int
         """
-        level_sum = 0
+        level_sum = 1
         # TODO implement
         # for each goal in the problem, determine the level cost, then add them together
+        for goal in self.problem.goal:
+            goalFound = False
+
+            for level in range(len(self.s_levels)):
+                for state in self.s_levels[level]:
+                    if goal == state.symbol:
+                        goalFound = True
+                        level_sum += level
+                        break
+                if goalFound:
+                    break
+
         return level_sum
